@@ -1,0 +1,48 @@
+# Headless Linux deployment (no GUI/OCR/Windows deps)
+
+# Async
+asyncio-throttle==1.0.2
+uvloop==0.21.0
+
+# LLM
+anthropic==0.40.0
+openai==1.58.1
+tiktoken==0.8.0
+
+# Document processing
+python-docx==1.1.2
+openpyxl==3.1.5
+pypdf==5.1.0
+pdfplumber==0.11.4
+Pillow==10.4.0
+
+# Config / data
+pydantic==2.10.3
+pydantic-settings==2.7.0
+python-dotenv==1.0.1
+
+# Persistence
+aiosqlite==0.20.0
+sqlalchemy[asyncio]==2.0.36
+
+# Logging
+loguru==0.7.3
+
+# Resilience
+tenacity==9.0.0
+circuitbreaker==2.0.0
+
+# HTTP
+httpx==0.28.1
+
+# Graph / utils
+networkx==3.4.2
+pydantic-graph==0.0.20
+
+# CLI
+rich==13.9.4
+typer==0.15.1
+python-slugify==8.0.4
+
+# Telegram
+python-telegram-bot[job-queue]==21.6
