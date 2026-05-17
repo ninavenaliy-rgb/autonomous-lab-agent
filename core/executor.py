@@ -132,8 +132,8 @@ class Executor:
             if self._heartbeat_fn:
                 self._heartbeat_fn()
 
-            # Capture before screenshot for change detection
-            before_shot = self._screen.capture_full("before")
+            # Capture before screenshot for change detection (Windows only)
+            before_shot = self._screen.capture_full("before") if self._screen else None
 
             # Execute with timeout
             result = self._execute_step_with_timeout(step, before_shot, ctx)
@@ -145,7 +145,8 @@ class Executor:
                     screenshots.append(result.screenshot)
                 if self._on_step_complete:
                     self._on_step_complete(result)
-                self._recovery.record_success()
+                if self._recovery:
+                    self._recovery.record_success()
             elif step.optional:
                 logger.info(f"Optional step skipped/failed: {step.step_id}")
                 steps_succeeded += 1  # Optional failures don't count
@@ -154,7 +155,7 @@ class Executor:
                 last_error = result.action_result.error
                 if self._on_step_failed:
                     self._on_step_failed(result)
-                opened = self._recovery.record_failure(f"{plan.task_id}:{step.step_id}")
+                opened = self._recovery.record_failure(f"{plan.task_id}:{step.step_id}") if self._recovery else False
                 if opened:
                     logger.error("Circuit breaker opened — stopping plan execution")
                     break
@@ -189,13 +190,15 @@ class Executor:
         before_shot: Screenshot | None,
         context: dict,
     ) -> StepExecutionResult:
-        """Execute a single step with timeout guard."""
+        """Execute a single step with optional timeout guard (Windows only)."""
+        if self._headless:
+            return self._execute_step(step, before_shot, context)
         try:
             with OperationTimer(self._step_timeout, step.action):
                 return self._execute_step(step, before_shot, context)
         except TimeoutError:
             logger.error(f"Step timeout: {step.step_id} ({step.action})")
-            fail_shot = self._screen.capture_failure(f"timeout_{step.step_id}")
+            fail_shot = self._screen.capture_failure(f"timeout_{step.step_id}") if self._screen else None
             return StepExecutionResult(
                 step=step,
                 action_result=ActionResult(
@@ -235,14 +238,14 @@ class Executor:
         action_result = self._gui.execute(step.action, **kwargs)
         duration_ms = (time.time() - t0) * 1000
 
-        # Capture after screenshot
+        # Capture after screenshot (Windows only)
         after_shot: Screenshot | None = None
-        if action_result.ok:
+        if action_result.ok and self._screen:
             after_shot = self._screen.capture_full(f"after_{step.step_id}")
 
-        # Validate outcome
+        # Validate outcome (Windows only)
         validation_passed = True
-        if step.expected_outcome and action_result.ok:
+        if step.expected_outcome and action_result.ok and self._qa:
             vr = self._qa.validate_step_action(
                 step.action,
                 step.target,

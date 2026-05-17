@@ -19,7 +19,8 @@ from recovery.crash_recovery import (
     get_crash_recovery,
     RecoveryAttempt,
 )
-from vision.screenshot_engine import get_screenshot_engine
+import platform as _platform
+_IS_WINDOWS = _platform.system() == "Windows"
 
 
 class RecoveryTrigger(str, Enum):
@@ -50,7 +51,11 @@ class RecoveryAgent:
         cfg = get_config()
         self._crash = get_crash_recovery()
         self._popups = get_popup_handler()
-        self._screen = get_screenshot_engine()
+        if _IS_WINDOWS:
+            from vision.screenshot_engine import get_screenshot_engine
+            self._screen = get_screenshot_engine()
+        else:
+            self._screen = None
         self._circuit = CircuitBreaker(
             threshold=cfg.recovery.circuit_breaker_threshold,
             reset_seconds=cfg.recovery.circuit_breaker_reset_seconds,
@@ -66,7 +71,8 @@ class RecoveryAgent:
 
         def on_hang(event: WatchdogEvent) -> None:
             logger.error(f"Watchdog triggered: {event.details}")
-            self._screen.capture_failure("watchdog_hang")
+            if self._screen:
+                self._screen.capture_failure("watchdog_hang")
             if hang_callback:
                 hang_callback(event)
 
@@ -107,7 +113,8 @@ class RecoveryAgent:
         error = ctx.get("error", "")
 
         logger.warning(f"Recovery triggered: {trigger} | app={app} | error={error[:100]}")
-        self._screen.capture_failure(f"recovery_{trigger.value}")
+        if self._screen:
+            self._screen.capture_failure(f"recovery_{trigger.value}")
 
         if trigger == RecoveryTrigger.POPUP_BLOCKING:
             dismissed = self._popups.check_once()
