@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "autonomous-lab-agent"
+version = "1.0.0"
+description = "Autonomous desktop AI agent for completing Office lab assignments"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [{name = "Lab Agent"}]
+keywords = ["automation", "desktop", "AI", "Word", "Excel", "RPA"]
+
+[project.scripts]
+lab-agent = "app.main:app"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--tb=short",
+    "-q",
+    "--no-header",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning",
+]
+
+[tool.coverage.run]
+source = ["core", "agents", "ui", "vision", "report", "recovery", "storage"]
+omit = ["tests/*", "examples/*", "app/main.py"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 60
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+select = ["E", "F", "W", "I", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = false
+ignore_missing_imports = true
