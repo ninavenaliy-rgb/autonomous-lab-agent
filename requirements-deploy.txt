@@ -1,8 +1,7 @@
 # Headless Linux deployment (no GUI/OCR/Windows deps)
 
-# Async
-asyncio-throttle==1.0.2
-uvloop==0.21.0
+# Async (uvloop speeds up Linux event loop)
+uvloop==0.21.0; sys_platform == "linux"
 
 # LLM
 anthropic==0.40.0
@@ -37,7 +36,6 @@ httpx==0.28.1
 
 # Graph / utils
 networkx==3.4.2
-pydantic-graph==0.0.20
 
 # CLI
 rich==13.9.4
@@ -45,4 +43,4 @@ typer==0.15.1
 python-slugify==8.0.4
 
 # Telegram
-python-telegram-bot[job-queue]==21.6
+python-telegram-bot[job-queue]==22.7
