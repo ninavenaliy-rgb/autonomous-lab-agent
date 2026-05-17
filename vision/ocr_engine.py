@@ -10,9 +10,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
-import cv2
-import numpy as np
 from loguru import logger
+
+try:
+    import cv2
+    import numpy as np
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    cv2 = None  # type: ignore
+    np = None   # type: ignore
 
 from core.config import get_config, OCRBackend
 
@@ -254,8 +261,10 @@ class OCREngine:
 _ocr: OCREngine | None = None
 
 
-def get_ocr_engine() -> OCREngine:
+def get_ocr_engine() -> "OCREngine":
     global _ocr
     if _ocr is None:
+        if not CV2_AVAILABLE:
+            raise RuntimeError("OCREngine requires cv2 (headless mode: not available)")
         _ocr = OCREngine()
     return _ocr

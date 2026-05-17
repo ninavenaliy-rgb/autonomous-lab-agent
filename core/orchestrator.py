@@ -14,12 +14,11 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import platform as _platform
+
 from loguru import logger
 
 from agents.parser_agent import ParserAgent, ParsedTask, get_parser_agent
-from agents.vision_agent import VisionAgent, get_vision_agent
-from agents.gui_agent import GUIAgent, get_gui_agent
-from agents.qa_agent import QAAgent, get_qa_agent
 from agents.report_agent import ReportAgent, TaskResult, ReportMeta, get_report_agent
 from agents.recovery_agent import RecoveryAgent, RecoveryTrigger, get_recovery_agent
 from core.config import get_config
@@ -27,7 +26,9 @@ from core.planner import Planner, ExecutionPlan, get_planner
 from core.executor import Executor, PlanExecutionResult, get_executor
 from core.state_manager import StateManager, SessionState
 from storage.checkpoints import get_checkpoint_manager
-from vision.screenshot_engine import Screenshot, get_screenshot_engine
+from vision.screenshot_engine import Screenshot
+
+IS_WINDOWS = _platform.system() == "Windows"
 
 
 class Orchestrator:
@@ -42,16 +43,28 @@ class Orchestrator:
         self._session_id = session_id or str(uuid.uuid4())
         self._state = StateManager(self._session_id)
 
-        # Agents
+        # Core agents (always available)
         self._parser = get_parser_agent()
-        self._vision = get_vision_agent()
-        self._gui = get_gui_agent()
-        self._qa = get_qa_agent()
         self._report = get_report_agent()
         self._recovery = get_recovery_agent()
         self._planner = get_planner()
         self._executor = get_executor()
-        self._screen = get_screenshot_engine()
+
+        # GUI-only agents (Windows only)
+        if IS_WINDOWS:
+            from agents.vision_agent import get_vision_agent
+            from agents.gui_agent import get_gui_agent
+            from agents.qa_agent import get_qa_agent
+            from vision.screenshot_engine import get_screenshot_engine
+            self._vision = get_vision_agent()
+            self._gui = get_gui_agent()
+            self._qa = get_qa_agent()
+            self._screen = get_screenshot_engine()
+        else:
+            self._vision = None
+            self._gui = None
+            self._qa = None
+            self._screen = None
 
         # Wire executor callbacks
         self._executor.set_step_callbacks(
@@ -100,7 +113,8 @@ class Orchestrator:
         except Exception as exc:
             logger.exception(f"Orchestrator failed: {exc}")
             await self._state.mark_session_failed(str(exc))
-            self._screen.capture_failure("orchestrator_crash")
+            if self._screen:
+                self._screen.capture_failure("orchestrator_crash")
             raise
         finally:
             self._recovery.stop_background_services()
@@ -245,17 +259,19 @@ class Orchestrator:
                 logger.error(f"Recovery failed for task {task.task_id}")
                 break
 
-        # Take final screenshot
-        final_shot = self._screen.capture_full(f"final_{task.task_id}")
-        task_screenshots.append(final_shot)
-        self._state.register_screenshot(
-            final_shot,
-            for_report=True,
-            caption=f"Результат выполнения: {task.title}",
-        )
+        # Take final screenshot (Windows only)
+        if self._screen:
+            final_shot = self._screen.capture_full(f"final_{task.task_id}")
+            task_screenshots.append(final_shot)
+            self._state.register_screenshot(
+                final_shot,
+                for_report=True,
+                caption=f"Результат выполнения: {task.title}",
+            )
 
-        # Run QA validation
-        qa_report = self._qa.validate_task(task)
+        # Run QA validation (Windows only)
+        if self._qa:
+            self._qa.validate_task(task)
 
         # Create task result
         completed = plan_result.completed if 'plan_result' in dir() else False
@@ -289,6 +305,10 @@ class Orchestrator:
     async def _ensure_application(self, app: str) -> bool:
         """Ensure the target application is open and focused."""
         if app not in ("word", "excel"):
+            return True
+
+        # In headless mode, the document executor handles app "opening" internally
+        if not self._vision:
             return True
 
         vr = self._vision.verify_application_open(app)
@@ -329,15 +349,16 @@ class Orchestrator:
         logger.warning(
             f"Step failed: {result.step.step_id} | {result.action_result.error}"
         )
-        # Check for blocking popups
-        self._recovery.recover(
-            RecoveryTrigger.POPUP_BLOCKING,
-            context={"step_id": result.step.step_id},
-        )
+        if IS_WINDOWS:
+            self._recovery.recover(
+                RecoveryTrigger.POPUP_BLOCKING,
+                context={"step_id": result.step.step_id},
+            )
 
     def _on_hang(self, event) -> None:
         logger.error(f"Hang detected: {event.details}")
-        # Attempt recovery
+        if not self._vision:
+            return
         state = self._vision.capture_state(include_ui_tree=False, include_ocr=False)
         app = state.detected_application
         if app in ("word", "excel"):

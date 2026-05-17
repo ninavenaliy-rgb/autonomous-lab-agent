@@ -12,10 +12,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Tuple
 
-import cv2
-import numpy as np
 from loguru import logger
 from PIL import Image
+
+try:
+    import cv2
+    import numpy as np
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    cv2 = None  # type: ignore
+    np = None   # type: ignore
 
 try:
     import mss
@@ -23,7 +30,6 @@ try:
     MSS_AVAILABLE = True
 except ImportError:
     MSS_AVAILABLE = False
-    logger.warning("mss not available; falling back to pyautogui")
 
 try:
     import pyautogui
@@ -75,7 +81,9 @@ class Screenshot:
     caption: str = ""
 
     @property
-    def array(self) -> np.ndarray:
+    def array(self):
+        if not CV2_AVAILABLE:
+            raise RuntimeError("cv2 not available in headless mode")
         return cv2.imread(str(self.path))
 
     @property
@@ -291,8 +299,10 @@ class ScreenshotEngine:
 _engine: ScreenshotEngine | None = None
 
 
-def get_screenshot_engine() -> ScreenshotEngine:
+def get_screenshot_engine() -> "ScreenshotEngine":
     global _engine
     if _engine is None:
+        if not CV2_AVAILABLE:
+            raise RuntimeError("ScreenshotEngine requires cv2 (headless mode: not available)")
         _engine = ScreenshotEngine()
     return _engine

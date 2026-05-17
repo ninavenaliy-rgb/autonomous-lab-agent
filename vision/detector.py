@@ -9,9 +9,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
-import cv2
-import numpy as np
 from loguru import logger
+
+try:
+    import cv2
+    import numpy as np
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    cv2 = None  # type: ignore
+    np = None   # type: ignore
 
 from core.config import get_config
 
@@ -44,9 +51,9 @@ class TemplateDetector:
 
     def find(
         self,
-        haystack: np.ndarray,
-        template: np.ndarray,
-        method: int = cv2.TM_CCOEFF_NORMED,
+        haystack,
+        template,
+        method: int = 5,  # cv2.TM_CCOEFF_NORMED = 5
     ) -> DetectionResult:
         """Find template in haystack image."""
         if haystack is None or template is None:
@@ -229,15 +236,19 @@ _template_detector: TemplateDetector | None = None
 _change_detector: ChangeDetector | None = None
 
 
-def get_template_detector() -> TemplateDetector:
+def get_template_detector() -> "TemplateDetector":
     global _template_detector
     if _template_detector is None:
+        if not CV2_AVAILABLE:
+            raise RuntimeError("TemplateDetector requires cv2 (headless mode: not available)")
         _template_detector = TemplateDetector()
     return _template_detector
 
 
-def get_change_detector() -> ChangeDetector:
+def get_change_detector() -> "ChangeDetector":
     global _change_detector
     if _change_detector is None:
+        if not CV2_AVAILABLE:
+            raise RuntimeError("ChangeDetector requires cv2 (headless mode: not available)")
         _change_detector = ChangeDetector()
     return _change_detector

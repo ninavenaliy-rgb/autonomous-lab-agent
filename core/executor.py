@@ -14,16 +14,20 @@ from loguru import logger
 
 import platform
 
-from agents.gui_agent import GUIAgent, ActionResult, ActionStatus, get_gui_agent
+IS_WINDOWS = platform.system() == "Windows"
+
+from agents.gui_agent import ActionResult, ActionStatus
 from agents.parser_agent import AtomicStep
-from agents.qa_agent import QAAgent, get_qa_agent
-from agents.recovery_agent import RecoveryAgent, RecoveryTrigger, get_recovery_agent
 from core.config import get_config
 from core.planner import ExecutionPlan
-from recovery.watchdog import OperationTimer
-from vision.screenshot_engine import Screenshot, get_screenshot_engine
+from vision.screenshot_engine import Screenshot
 
-IS_WINDOWS = platform.system() == "Windows"
+if IS_WINDOWS:
+    from agents.gui_agent import get_gui_agent
+    from agents.qa_agent import get_qa_agent
+    from agents.recovery_agent import get_recovery_agent
+    from recovery.watchdog import OperationTimer
+    from vision.screenshot_engine import get_screenshot_engine
 
 
 @dataclass

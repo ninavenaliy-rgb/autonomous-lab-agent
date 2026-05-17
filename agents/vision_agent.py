@@ -10,8 +10,12 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
 from loguru import logger
+
+try:
+    import numpy as np
+except ImportError:
+    np = None  # type: ignore
 
 from core.config import get_config
 from ui.ui_inspector import UIElement, UITree, get_ui_inspector
@@ -337,8 +341,11 @@ class VisionAgent:
 _agent: VisionAgent | None = None
 
 
-def get_vision_agent() -> VisionAgent:
+def get_vision_agent() -> "VisionAgent":
     global _agent
     if _agent is None:
+        import platform
+        if platform.system() != "Windows":
+            raise RuntimeError("VisionAgent requires Windows GUI (headless mode: not available)")
         _agent = VisionAgent()
     return _agent
