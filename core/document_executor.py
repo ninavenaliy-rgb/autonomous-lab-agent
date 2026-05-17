@@ -477,6 +477,7 @@ class HeadlessExecutor:
 
     def execute(self, action: str, **kwargs) -> Any:
         """Execute action. Returns ActionResult-compatible object."""
+        import platform
         app = kwargs.get("application", self._current_app)
 
         # Route to correct executor
@@ -493,13 +494,39 @@ class HeadlessExecutor:
 
         success = executor.execute(action, **kwargs)
 
-        # Return ActionResult-compatible namedtuple
+        # After save, take a real screenshot from Word/Excel on Mac
+        screenshot_path = None
+        if success and action in ("save_file", "save_as") and platform.system() == "Darwin":
+            doc_path = self.get_document_path(app)
+            if doc_path and doc_path.exists():
+                screenshot_path = self._capture_mac_screenshot(doc_path, app)
+
         from agents.gui_agent import ActionResult, ActionStatus
-        return ActionResult(
+        result = ActionResult(
             status=ActionStatus.SUCCESS if success else ActionStatus.FAILED,
             action=action,
             target=kwargs.get("target", ""),
         )
+        # Attach screenshot path as extra attribute if captured
+        if screenshot_path:
+            object.__setattr__(result, "_screenshot_path", screenshot_path)
+        return result
+
+    def _capture_mac_screenshot(self, doc_path: Path, app: str) -> Path | None:
+        """Open document in Word/Excel on Mac, take screenshot, close."""
+        try:
+            from vision.mac_word_capture import take_single_word_screenshot
+            cfg = get_config()
+            shot_dir = cfg.storage.screenshot_dir
+            shot_dir.mkdir(parents=True, exist_ok=True)
+            shot_path = shot_dir / f"word_{doc_path.stem}_{int(__import__('time').time())}.png"
+            result = take_single_word_screenshot(doc_path, shot_path)
+            if result:
+                logger.info(f"Mac Word screenshot: {result.name}")
+                return result
+        except Exception as exc:
+            logger.debug(f"Mac screenshot skipped: {exc}")
+        return None
 
     def get_document_path(self, app: str = "word") -> Path | None:
         if app == "excel":

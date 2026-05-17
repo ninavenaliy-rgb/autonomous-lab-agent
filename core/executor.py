@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from loguru import logger
@@ -238,10 +239,21 @@ class Executor:
         action_result = self._gui.execute(step.action, **kwargs)
         duration_ms = (time.time() - t0) * 1000
 
-        # Capture after screenshot (Windows only)
+        # Capture after screenshot (Windows GUI or Mac headless Word)
         after_shot: Screenshot | None = None
         if action_result.ok and self._screen:
             after_shot = self._screen.capture_full(f"after_{step.step_id}")
+        elif action_result.ok:
+            shot_path = getattr(action_result, "_screenshot_path", None)
+            if shot_path and Path(shot_path).exists():
+                after_shot = Screenshot(
+                    path=Path(shot_path),
+                    width=0,
+                    height=0,
+                    region=None,
+                    taken_at=time.time(),
+                    caption=f"Выполнение шага: {step.action}",
+                )
 
         # Validate outcome (Windows only)
         validation_passed = True

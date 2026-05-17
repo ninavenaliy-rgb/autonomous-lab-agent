@@ -2,7 +2,8 @@
 DOCX Report Builder.
 Constructs a fully formatted laboratory report with:
 - ГОСТ-style formatting (Times New Roman 14pt, 1.5 line spacing)
-- Sequential figure and table captions
+- Sequential figure and table captions with Word bookmarks
+- Internal cross-reference hyperlinks: (см. Рисунок N)
 - Automatic table of contents field
 - Embedded screenshots
 - Section structure matching lab methodology
@@ -11,6 +12,7 @@ Constructs a fully formatted laboratory report with:
 from __future__ import annotations
 
 import io
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -72,6 +74,7 @@ class DocxBuilder:
         self._captions = get_caption_manager()
         self._toc = TOCManager()
         self._doc: Any = None
+        self._bookmark_id = 0
 
     def new_document(self) -> None:
         """Start a fresh document with all base styles configured."""
@@ -81,6 +84,7 @@ class DocxBuilder:
         self._setup_page_margins()
         self._setup_styles()
         self._captions.reset()
+        self._bookmark_id = 0
 
     def _setup_page_margins(self) -> None:
         sections = self._doc.sections
@@ -204,14 +208,13 @@ class DocxBuilder:
 
         self._toc.register_heading(section.title, section.level)
 
-        # Body text
+        # Body text — preserve cross-reference hyperlinks
         if section.content:
             for paragraph_text in section.content.split("\n\n"):
                 text = paragraph_text.strip()
                 if not text:
                     continue
-                p = doc.add_paragraph(text)
-                p.style = doc.styles["Normal"]
+                self._add_paragraph_with_refs(text)
 
         # Tables
         for idx, (table_data, caption_text) in enumerate(
@@ -229,6 +232,72 @@ class DocxBuilder:
                 entry = self._captions.next_figure(caption_text, fig_path)
                 self._add_figure(fig_path, entry)
 
+    def _add_bookmark(self, paragraph, anchor: str) -> None:
+        """Wrap a paragraph in a named Word bookmark for internal linking."""
+        p = paragraph._p
+        bm_start = OxmlElement("w:bookmarkStart")
+        bm_start.set(qn("w:id"), str(self._bookmark_id))
+        bm_start.set(qn("w:name"), anchor)
+        bm_end = OxmlElement("w:bookmarkEnd")
+        bm_end.set(qn("w:id"), str(self._bookmark_id))
+        self._bookmark_id += 1
+        p.insert(0, bm_start)
+        p.append(bm_end)
+
+    def _add_hyperlink_run(self, paragraph, text: str, anchor: str) -> None:
+        """Insert an internal cross-reference hyperlink run into a paragraph."""
+        hl = OxmlElement("w:hyperlink")
+        hl.set(qn("w:anchor"), anchor)
+        r = OxmlElement("w:r")
+        rPr = OxmlElement("w:rPr")
+        color = OxmlElement("w:color")
+        color.set(qn("w:val"), "1F497D")
+        u = OxmlElement("w:u")
+        u.set(qn("w:val"), "single")
+        rPr.append(color)
+        rPr.append(u)
+        r.append(rPr)
+        t = OxmlElement("w:t")
+        t.text = text
+        r.append(t)
+        hl.append(r)
+        paragraph._p.append(hl)
+
+    def _add_paragraph_with_refs(self, text: str):
+        """Add a paragraph that turns (см. Рисунок N) into clickable internal links."""
+        doc = self._doc
+        p = doc.add_paragraph()
+        p.style = doc.styles["Normal"]
+
+        # Match (см. Рисунок N) or (см. Таблицу N) / (см. Таблица N)
+        pattern = re.compile(
+            r"(\(см\.\s+(?:Рисунок|Таблицу|Таблица)\s+(\d+)\))",
+            re.IGNORECASE,
+        )
+        last_end = 0
+        for m in pattern.finditer(text):
+            before = text[last_end : m.start()]
+            if before:
+                run = p.add_run(before)
+                run.font.name = self._cfg.font_name
+                run.font.size = Pt(self._cfg.font_size_body)
+            ref_text = m.group(1)
+            num = m.group(2)
+            if "Рисунок" in ref_text or "рисунок" in ref_text:
+                anchor = f"cap_figure_{num}"
+            else:
+                anchor = f"cap_table_{num}"
+            self._add_hyperlink_run(p, ref_text, anchor)
+            last_end = m.end()
+
+        remaining = text[last_end:]
+        if remaining:
+            run = p.add_run(remaining)
+            run.font.name = self._cfg.font_name
+            run.font.size = Pt(self._cfg.font_size_body)
+
+        return p
+
     def _add_figure(self, image_path: str, entry: CaptionEntry) -> None:
         doc = self._doc
         # Center paragraph for image
@@ -243,7 +312,7 @@ class DocxBuilder:
             logger.warning(f"Image insert failed for {image_path}: {exc}")
             p_img.add_run(f"[Изображение: {Path(image_path).name}]")
 
-        # Caption paragraph
+        # Caption paragraph — add bookmark so (см. Рисунок N) links work
         p_cap = doc.add_paragraph()
         p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
         p_cap.paragraph_format.space_after = Pt(12)
@@ -251,13 +320,14 @@ class DocxBuilder:
         run.font.name = self._cfg.font_name
         run.font.size = Pt(12)
         run.italic = True
+        self._add_bookmark(p_cap, entry.anchor)
 
     def _add_table(self, data: list[list[str]], entry: CaptionEntry) -> None:
         doc = self._doc
         if not data:
             return
 
-        # Caption above table (ГОСТ style)
+        # Caption above table (ГОСТ style) — bookmark for cross-references
         p_cap = doc.add_paragraph()
         p_cap.alignment = WD_ALIGN_PARAGRAPH.LEFT
         p_cap.paragraph_format.space_after = Pt(3)
@@ -265,6 +335,7 @@ class DocxBuilder:
         run.font.name = self._cfg.font_name
         run.font.size = Pt(12)
         run.italic = True
+        self._add_bookmark(p_cap, entry.anchor)
 
         rows = len(data)
         cols = max(len(row) for row in data) if data else 1
