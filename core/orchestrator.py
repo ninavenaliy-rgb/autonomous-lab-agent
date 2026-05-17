@@ -131,6 +131,8 @@ class Orchestrator:
         # ── Phase 1: Parse ────────────────────────────────────────────────────
         await self._state.transition(SessionState.PARSING)
         self._recovery.heartbeat("parsing")
+        # Wire heartbeat into parser so watchdog stays alive during LLM calls
+        self._parser._heartbeat_fn = lambda: self._recovery.heartbeat("parsing_llm")
         methodology = self._parser.parse(methodology_path)
         self._state.set_methodology(methodology)
         logger.info(

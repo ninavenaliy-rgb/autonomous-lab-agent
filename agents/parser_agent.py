@@ -214,19 +214,41 @@ class LLMClient:
     def _initialize(self) -> None:
         if self._provider == LLMProvider.ANTHROPIC and ANTHROPIC_AVAILABLE:
             self._client = anthropic.Anthropic(api_key=self._cfg.anthropic_api_key)
+            self._check_availability()
         elif self._provider == LLMProvider.OPENAI and OPENAI_AVAILABLE:
             self._client = openai.OpenAI(api_key=self._cfg.openai_api_key)
         else:
             logger.warning("No LLM client available — parser will use heuristics only")
 
+    def _check_availability(self) -> None:
+        """Ping the API with a tiny request to check credits/auth."""
+        try:
+            self._client.messages.create(
+                model=self._cfg.claude_model,
+                max_tokens=1,
+                messages=[{"role": "user", "content": "hi"}],
+                timeout=15,
+            )
+        except Exception as exc:
+            err = str(exc)
+            if "credit" in err.lower() or "billing" in err.lower() or "balance" in err.lower():
+                logger.error("Anthropic API: no credits — switching to heuristic mode")
+                self._client = None
+            elif "auth" in err.lower() or "invalid" in err.lower() or "401" in err:
+                logger.error("Anthropic API: invalid key — switching to heuristic mode")
+                self._client = None
+            # Other errors (network, timeout) — keep client, might work later
+
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=30),
+        stop=stop_after_attempt(2),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
         reraise=True,
     )
     def complete(self, system: str, user: str) -> str:
         if self._client is None:
             raise RuntimeError("LLM client not initialized")
+
+        timeout = self._cfg.timeout_seconds  # 120s default
 
         if self._provider == LLMProvider.ANTHROPIC:
             response = self._client.messages.create(
@@ -235,6 +257,7 @@ class LLMClient:
                 temperature=self._cfg.temperature,
                 system=system,
                 messages=[{"role": "user", "content": user}],
+                timeout=timeout,
             )
             return response.content[0].text
 
@@ -247,6 +270,7 @@ class LLMClient:
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
+                timeout=timeout,
             )
             return response.choices[0].message.content or ""
 
@@ -324,7 +348,8 @@ class ParserAgent:
     def __init__(self) -> None:
         self._reader = DocumentReader()
         self._llm = LLMClient()
-        self._chunk_size = 6000  # chars per LLM request to avoid context overflow
+        self._chunk_size = 20000  # larger chunks = fewer API calls
+        self._heartbeat_fn = None  # set by orchestrator to keep watchdog alive
 
     def parse(self, path: Path) -> ParsedMethodology:
         """Parse a methodology file and return structured task graph."""
@@ -351,7 +376,9 @@ class ParserAgent:
         doc_title = path.stem
 
         for i, chunk in enumerate(chunks):
-            logger.debug(f"LLM parsing chunk {i+1}/{len(chunks)}")
+            logger.info(f"LLM parsing chunk {i+1}/{len(chunks)} ({len(chunk)} chars)")
+            if self._heartbeat_fn:
+                self._heartbeat_fn()
             prompt = f"""Parse this laboratory methodology document chunk and extract all tasks.
 Document: {path.name}
 Chunk {i+1} of {len(chunks)}:

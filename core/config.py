@@ -57,7 +57,7 @@ class LLMConfig(BaseSettings):
 
     max_tokens: int = 8192
     temperature: float = 0.1  # near-deterministic for automation
-    timeout_seconds: int = 120
+    timeout_seconds: int = 150
     max_retries: int = 3
 
     @field_validator("anthropic_api_key", "openai_api_key", mode="before")
@@ -104,7 +104,7 @@ class RecoveryConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="RECOVERY_", extra="ignore")
 
     watchdog_interval_seconds: int = 5
-    hang_threshold_seconds: int = 60
+    hang_threshold_seconds: int = 180
     max_crash_restarts: int = 3
     restart_wait_seconds: int = 8
     popup_check_interval_seconds: int = 3
