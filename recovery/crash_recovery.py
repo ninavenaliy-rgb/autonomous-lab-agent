@@ -42,6 +42,9 @@ class CrashRecoveryManager:
         self._restart_counts: dict[str, int] = {"word": 0, "excel": 0}
 
     def _get_wm(self):
+        import platform
+        if platform.system() != "Windows":
+            return None
         if self._wm is None:
             from ui.window_manager import get_window_manager
             self._wm = get_window_manager()
@@ -50,6 +53,8 @@ class CrashRecoveryManager:
     def is_application_alive(self, app: str) -> bool:
         """Check if Word or Excel is running and responsive."""
         wm = self._get_wm()
+        if wm is None:
+            return True  # headless mode — always "alive"
         if app == "word":
             win = wm.find_word_window()
         elif app == "excel":
@@ -58,7 +63,6 @@ class CrashRecoveryManager:
             return False
         if not win:
             return False
-        # Check if process is still running
         if win.pid:
             return wm.is_process_alive(win.pid)
         return True
@@ -115,6 +119,8 @@ class CrashRecoveryManager:
 
     def _kill_application(self, app: str) -> None:
         wm = self._get_wm()
+        if wm is None:
+            return
         process_names = {
             "word": ["WINWORD.EXE", "WINWORD"],
             "excel": ["EXCEL.EXE", "EXCEL"],
@@ -129,6 +135,8 @@ class CrashRecoveryManager:
 
     def _restart_application(self, app: str, file_path: str | None = None) -> bool:
         wm = self._get_wm()
+        if wm is None:
+            return True  # headless mode — nothing to restart
         if app == "word":
             proc = wm.launch_word(file_path)
             if not proc:
@@ -178,8 +186,9 @@ class CrashRecoveryManager:
     def handle_hang(self, app: str) -> bool:
         """Handle a hung (unresponsive) application."""
         logger.warning(f"Handling hung {app}")
-        # First try: send WM_KEYDOWN Enter to unfreeze
         wm = self._get_wm()
+        if wm is None:
+            return True  # headless — nothing to unfreeze
         if app == "word":
             win = wm.find_word_window()
         else:
