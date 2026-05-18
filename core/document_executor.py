@@ -492,12 +492,17 @@ class HeadlessExecutor:
         self._current_app = app
         executor = self._excel if app == "excel" else self._word
 
+        # Grab path BEFORE close_file clears the state
+        pre_close_path: Path | None = None
+        if action == "close_file" and platform.system() == "Darwin":
+            pre_close_path = self.get_document_path(app)
+
         success = executor.execute(action, **kwargs)
 
-        # After save, take a real screenshot from Word/Excel on Mac
+        # Take ONE screenshot per document — when it is closed (final state)
         screenshot_path = None
-        if success and action in ("save_file", "save_as") and platform.system() == "Darwin":
-            doc_path = self.get_document_path(app)
+        if success and action == "close_file" and platform.system() == "Darwin":
+            doc_path = pre_close_path
             if doc_path and doc_path.exists():
                 screenshot_path = self._capture_mac_screenshot(doc_path, app)
 
