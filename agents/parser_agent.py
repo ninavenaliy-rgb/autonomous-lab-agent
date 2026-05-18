@@ -348,8 +348,12 @@ class ParserAgent:
     def __init__(self) -> None:
         self._reader = DocumentReader()
         self._llm = LLMClient()
-        self._chunk_size = 20000  # larger chunks = fewer API calls
-        self._heartbeat_fn = None  # set by orchestrator to keep watchdog alive
+        self._chunk_size = 20000
+        self._heartbeat_fn = None
+        self._reference_text: str = ""  # sample completed report for style reference
+
+    def set_reference(self, text: str) -> None:
+        self._reference_text = text
 
     def parse(self, path: Path) -> ParsedMethodology:
         """Parse a methodology file and return structured task graph."""
@@ -379,15 +383,24 @@ class ParserAgent:
             logger.info(f"LLM parsing chunk {i+1}/{len(chunks)} ({len(chunk)} chars)")
             if self._heartbeat_fn:
                 self._heartbeat_fn()
+            ref_block = ""
+            if self._reference_text and i == 0:
+                ref_block = (
+                    "\n\nОБРАЗЕЦ ГОТОВОГО ОТЧЁТА (используй как эталон стиля и структуры):\n"
+                    + self._reference_text
+                    + "\n\nОПИРАЙСЯ НА ЭТОТ ОБРАЗЕЦ при составлении шагов и ожидаемых результатов.\n"
+                )
+
             prompt = f"""Parse this laboratory methodology document chunk and extract all tasks.
 Document: {path.name}
-Chunk {i+1} of {len(chunks)}:
+Chunk {i+1} of {len(chunks)}:{ref_block}
 
+МЕТОДИЧКА:
 {chunk}
 
 Extract ALL laboratory tasks/exercises mentioned. For each task, identify:
 - The application (word/excel)
-- Step-by-step instructions
+- Step-by-step instructions that produce a result matching the reference style
 - Expected results
 - Required validations
 """

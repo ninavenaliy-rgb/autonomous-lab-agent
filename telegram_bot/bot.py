@@ -43,9 +43,10 @@ from telegram_bot.runner import AgentRunner
 
 # Conversation states
 WAITING_FILE = 1
-WAITING_STUDENT = 2
-WAITING_GROUP = 3
-CONFIRM_RUN = 4
+WAITING_REFERENCE = 2
+WAITING_STUDENT = 3
+WAITING_GROUP = 4
+CONFIRM_RUN = 5
 
 store = SessionStore()
 
@@ -58,9 +59,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     await update.message.reply_text(
         f"👋 Привет, {user.first_name}!\n\n"
-        "Я автономный агент для выполнения лабораторных работ.\n\n"
-        "📄 Отправь мне файл методички (.docx или .pdf) — "
-        "я сам открою Word/Excel, выполню все задания и пришлю готовый отчёт.\n\n"
+        "Отправь мне файл методички (.docx или .pdf) и я выполню все задания.\n\n"
         "Команды:\n"
         "/run — начать новое задание\n"
         "/status — статус текущего выполнения\n"
@@ -143,10 +142,66 @@ async def handle_file(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
     ctx.user_data["session_id"] = session.session_id
 
     await msg.edit_text(
-        f"✅ Файл получен: *{fname}*\n\n"
-        "Как тебя представить в отчёте?\n"
-        "Введи ФИО студента (или /skip чтобы пропустить):",
+        f"✅ Методичка получена: *{fname}*\n\n"
+        "📎 Есть готовый отчёт другого студента по этой же лабе?\n"
+        "Пришли его — я сделаю в том же стиле и структуре.\n\n"
+        "_Или /skip чтобы пропустить_",
         parse_mode=ParseMode.MARKDOWN,
+    )
+    return WAITING_REFERENCE
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Reference sample handler
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def handle_reference_file(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
+    """User sends a sample completed report as reference."""
+    uid = update.effective_user.id
+    session = store.get(uid)
+    if not session:
+        return ConversationHandler.END
+
+    doc: Document = update.message.document
+    if doc:
+        fname = doc.file_name or ""
+        if fname.endswith(".docx") or fname.endswith(".pdf"):
+            cfg = get_config()
+            downloads = cfg.log_dir / "downloads"
+            downloads.mkdir(parents=True, exist_ok=True)
+            ref_path = downloads / f"ref_{uuid.uuid4().hex}_{fname}"
+            tg_file = await ctx.bot.get_file(doc.file_id)
+            await tg_file.download_to_drive(str(ref_path))
+            session.reference_path = ref_path
+            await update.message.reply_text(
+                f"✅ Образец сохранён: *{fname}*\n"
+                "Буду делать в том же стиле!\n\n"
+                "Как тебя представить в отчёте?\n"
+                "Введи ФИО студента (или /skip):",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+        else:
+            await update.message.reply_text(
+                "Нужен .docx или .pdf файл. Попробуй ещё раз или /skip:"
+            )
+            return WAITING_REFERENCE
+    # No file → treat as skip
+    else:
+        await update.message.reply_text(
+            "Пропускаю образец.\n\n"
+            "Как тебя представить в отчёте?\n"
+            "Введи ФИО студента (или /skip):"
+        )
+
+    return WAITING_STUDENT
+
+
+async def handle_reference_skip(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
+    """User typed /skip for reference step."""
+    await update.message.reply_text(
+        "Хорошо, без образца.\n\n"
+        "Как тебя представить в отчёте?\n"
+        "Введи ФИО студента (или /skip):"
     )
     return WAITING_STUDENT
 
@@ -258,6 +313,11 @@ def build_app(token: str) -> Application:
         states={
             WAITING_FILE: [
                 MessageHandler(filters.Document.ALL, handle_file),
+            ],
+            WAITING_REFERENCE: [
+                MessageHandler(filters.Document.ALL, handle_reference_file),
+                CommandHandler("skip", handle_reference_skip),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_reference_skip),
             ],
             WAITING_STUDENT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_student),

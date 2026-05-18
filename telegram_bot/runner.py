@@ -38,11 +38,21 @@ class AgentRunner:
 
         try:
             # Initial progress message
+            ref_hint = " + образец" if session.reference_path else ""
             msg = await self._send(
-                "⚙️ *Агент запущен*\n\n"
+                f"⚙️ *Агент запущен*{ref_hint}\n\n"
                 "🔍 Читаю методичку...",
             )
             self._progress_msg_id = msg.message_id
+
+            # Parse reference document if provided
+            reference_text = ""
+            if session.reference_path and session.reference_path.exists():
+                from agents.reference_parser import parse_reference
+                ref_doc = parse_reference(session.reference_path)
+                if ref_doc:
+                    reference_text = ref_doc.llm_context
+                    logger.info(f"Reference loaded: {len(reference_text)} chars context")
 
             # Build report metadata
             meta = ReportMeta(
@@ -79,6 +89,7 @@ class AgentRunner:
                 output_path=output_path,
                 resume=True,
                 report_meta=meta,
+                reference_text=reference_text,
             )
 
             session.report_path = report_path

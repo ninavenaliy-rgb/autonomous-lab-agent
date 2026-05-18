@@ -83,6 +83,7 @@ class Orchestrator:
         output_path: Path | None = None,
         resume: bool = True,
         report_meta: ReportMeta | None = None,
+        reference_text: str = "",
     ) -> Path:
         """
         Full autonomous execution pipeline.
@@ -105,7 +106,7 @@ class Orchestrator:
 
         try:
             report_path = await self._run_pipeline(
-                methodology_path, output_path, resume, report_meta
+                methodology_path, output_path, resume, report_meta, reference_text
             )
             await self._state.mark_session_complete()
             return report_path
@@ -125,14 +126,17 @@ class Orchestrator:
         output_path: Path | None,
         resume: bool,
         report_meta: ReportMeta | None,
+        reference_text: str = "",
     ) -> Path:
         """Core execution pipeline."""
 
         # ── Phase 1: Parse ────────────────────────────────────────────────────
         await self._state.transition(SessionState.PARSING)
         self._recovery.heartbeat("parsing")
-        # Wire heartbeat into parser so watchdog stays alive during LLM calls
         self._parser._heartbeat_fn = lambda: self._recovery.heartbeat("parsing_llm")
+        if reference_text:
+            self._parser.set_reference(reference_text)
+            self._report.set_reference(reference_text)
         methodology = self._parser.parse(methodology_path)
         self._state.set_methodology(methodology)
         logger.info(

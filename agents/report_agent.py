@@ -47,7 +47,11 @@ class ReportAgent:
         self._builder = get_docx_builder()
         self._captions = get_caption_manager()
         self._llm = None
+        self._reference_text: str = ""
         self._init_llm()
+
+    def set_reference(self, text: str) -> None:
+        self._reference_text = text
 
     def _init_llm(self) -> None:
         try:
@@ -165,12 +169,19 @@ class ReportAgent:
         if not self._llm:
             return result.description
 
-        system = """You are writing a laboratory report in Russian.
+        ref_block = ""
+        if self._reference_text:
+            ref_block = (
+                f"\n\nОБРАЗЕЦ СТИЛЯ (пиши похожим языком и с такой же детальностью):\n"
+                f"{self._reference_text[:1500]}\n"
+            )
+
+        system = f"""You are writing a laboratory report in Russian.
 Given a task description, write 2-3 clear academic sentences describing:
 1. What was performed
 2. What the result was
 3. What was learned
-Write in past tense, in Russian. No lists — flowing prose only."""
+Write in past tense, in Russian. No lists — flowing prose only.{ref_block}"""
 
         user = f"""Task: {result.title}
 Description: {result.description}

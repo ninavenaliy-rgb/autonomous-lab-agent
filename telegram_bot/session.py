@@ -19,6 +19,7 @@ class BotSession:
     group: str = ""
     teacher: str = ""
     lab_number: str = ""
+    reference_path: Path | None = None   # sample completed report for style reference
 
     # Runtime state
     state: str = "idle"          # idle / running / done / failed
