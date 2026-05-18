@@ -43,10 +43,11 @@ from telegram_bot.runner import AgentRunner
 
 # Conversation states
 WAITING_FILE = 1
-WAITING_REFERENCE = 2
-WAITING_STUDENT = 3
-WAITING_GROUP = 4
-CONFIRM_RUN = 5
+WAITING_MODE = 2       # after first file: choose methodology vs clone
+WAITING_REFERENCE = 3  # methodology mode: optional reference upload
+WAITING_STUDENT = 4
+WAITING_GROUP = 5
+CONFIRM_RUN = 6
 
 store = SessionStore()
 
@@ -141,14 +142,58 @@ async def handle_file(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
     store.set(uid, session)
     ctx.user_data["session_id"] = session.session_id
 
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            "📋 Это методичка — выполнить задания",
+            callback_data="mode_agent",
+        )],
+        [InlineKeyboardButton(
+            "📄 Это готовый отчёт — скопировать, сменить имя",
+            callback_data="mode_clone",
+        )],
+    ])
     await msg.edit_text(
-        f"✅ Методичка получена: *{fname}*\n\n"
-        "📎 Есть готовый отчёт другого студента по этой же лабе?\n"
-        "Пришли его — я сделаю в том же стиле и структуре.\n\n"
-        "_Или /skip чтобы пропустить_",
+        f"✅ Файл получен: *{fname}*\n\nЧто мне с ним сделать?",
         parse_mode=ParseMode.MARKDOWN,
+        reply_markup=keyboard,
     )
-    return WAITING_REFERENCE
+    return WAITING_MODE
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mode selection (after first file upload)
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def handle_mode(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    uid = update.effective_user.id
+    session = store.get(uid)
+    if not session:
+        return ConversationHandler.END
+
+    if query.data == "mode_clone":
+        # Clone mode: the file IS the reference
+        session.reference_path = session.methodology_path
+        session.clone_mode = True
+        await query.edit_message_text(
+            "📄 *Режим копирования*\n\n"
+            "Введи своё ФИО (как должно быть в отчёте).\n"
+            "Или /skip чтобы оставить как есть:",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return WAITING_STUDENT
+    else:
+        # Agent mode: file is methodology, optionally ask for reference
+        session.clone_mode = False
+        await query.edit_message_text(
+            "📋 *Режим выполнения заданий*\n\n"
+            "Есть готовый отчёт другого студента?\n"
+            "Пришли его — сделаю в том же стиле.\n\n"
+            "_Или /skip чтобы пропустить_",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return WAITING_REFERENCE
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -313,6 +358,9 @@ def build_app(token: str) -> Application:
         states={
             WAITING_FILE: [
                 MessageHandler(filters.Document.ALL, handle_file),
+            ],
+            WAITING_MODE: [
+                CallbackQueryHandler(handle_mode, pattern="^mode_"),
             ],
             WAITING_REFERENCE: [
                 MessageHandler(filters.Document.ALL, handle_reference_file),

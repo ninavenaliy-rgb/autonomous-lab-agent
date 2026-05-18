@@ -20,6 +20,7 @@ class BotSession:
     teacher: str = ""
     lab_number: str = ""
     reference_path: Path | None = None   # sample completed report for style reference
+    clone_mode: bool = False              # True = clone reference, False = run agent
 
     # Runtime state
     state: str = "idle"          # idle / running / done / failed
