@@ -331,8 +331,13 @@ def build_app(token: str) -> Application:
                 CallbackQueryHandler(handle_confirm, pattern="^run_"),
             ],
         },
-        fallbacks=[CommandHandler("cancel", cmd_cancel)],
-        allow_reentry=True,
+        fallbacks=[
+            CommandHandler("cancel", cmd_cancel),
+            # If user sends /start or /run mid-conversation → restart cleanly
+            CommandHandler("start", cmd_cancel),
+            CommandHandler("run", cmd_cancel),
+        ],
+        allow_reentry=False,
     )
 
     app.add_handler(conv)
